@@ -256,7 +256,7 @@ instance Ord ServerState where
 
 data PoolConfig = PoolConfig {
       piServers              :: [Server],
-      piKeyspace             :: Keyspace,
+      piKeyspace             :: Maybe Keyspace,
       piAuth                 :: Maybe Authentication,
       piSessionCreateTimeout :: NominalDiffTime,
       piConnectionTimeout    :: NominalDiffTime,
@@ -300,7 +300,7 @@ instance (MonadCassandra m, Monoid w) => MonadCassandra (Control.Monad.RWS.RWST 
 
 
 
-defaultConfig :: [Server] -> Keyspace -> Maybe Authentication -> PoolConfig
+defaultConfig :: [Server] -> Maybe Keyspace -> Maybe Authentication -> PoolConfig
 defaultConfig servers keyspace auth = PoolConfig {
                   piServers = servers,
                   piKeyspace = keyspace,
@@ -315,7 +315,7 @@ defaultConfig servers keyspace auth = PoolConfig {
 
 
 -- | Construct a pool of Cassandra connections.
-newPool :: [Server] -> Keyspace -> Maybe Authentication -> IO Pool
+newPool :: [Server] -> Maybe Keyspace -> Maybe Authentication -> IO Pool
 newPool servers keyspace auth = newPool' $ defaultConfig servers keyspace auth
 
 newPool' :: PoolConfig -> IO Pool
@@ -816,12 +816,14 @@ introduce PoolConfig { piKeyspace, piAuth }  = do
       ERROR -> throwError qt (frBody fr)
       op -> throw $ LocalProtocolError ("introduce: unexpected opcode " `T.append` T.pack (show op)) qt
 
-    let Keyspace ksName = piKeyspace
-    let q = query $ "USE " `T.append` ksName :: Query Rows () ()
-    res <- executeInternal q () ONE
-    case res of
-        SetKeyspace ks -> return ()
-        _ -> throw $ LocalProtocolError ("expected SetKeyspace, but got " `T.append` T.pack (show res)) (queryText q)
+    case piKeyspace of
+      Nothing -> return ()
+      (Just (Keyspace ksName)) -> do
+        let q = query $ "USE " `T.append` ksName :: Query Rows () ()
+        res <- executeInternal q () ONE
+        case res of
+            SetKeyspace ks -> return ()
+            _ -> throw $ LocalProtocolError ("expected SetKeyspace, but got " `T.append` T.pack (show res)) (queryText q)
 
 withSession :: MonadCassandra m => (Pool -> StateT ActiveSession IO a) -> m a
 withSession code = do
